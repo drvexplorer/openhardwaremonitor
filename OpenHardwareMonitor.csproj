@@ -310,6 +310,7 @@
   <PropertyGroup>
     <PreBuildEvent>
     </PreBuildEvent>
-    <PostBuildEvent>copy "$(ProjectDir)Licenses\*.*" "$(TargetDir)"</PostBuildEvent>
+    <PostBuildEvent>copy "$(ProjectDir)Licenses\*.*" "$(TargetDir)"
+copy "$(ProjectDir)Hardware\*.sys" "$(TargetDir)"</PostBuildEvent>
   </PropertyGroup>
 </Project>
