@@ -33,13 +33,13 @@ namespace OpenHardwareMonitor.Hardware {
         IOControlCode.Access.Any),
       IOCTL_OLS_READ_MSR = new IOControlCode(OLS_TYPE, 0x821,
         IOControlCode.Access.Any),
-      IOCTL_OLS_WRITE_MSR = new IOControlCode(OLS_TYPE, 0x822, 
+      IOCTL_OLS_WRITE_MSR = new IOControlCode(OLS_TYPE, 0x822,
         IOControlCode.Access.Any),
       IOCTL_OLS_READ_IO_PORT_BYTE = new IOControlCode(OLS_TYPE, 0x833,
         IOControlCode.Access.Read),
-      IOCTL_OLS_WRITE_IO_PORT_BYTE = new IOControlCode(OLS_TYPE, 0x836, 
+      IOCTL_OLS_WRITE_IO_PORT_BYTE = new IOControlCode(OLS_TYPE, 0x836,
         IOControlCode.Access.Write),
-      IOCTL_OLS_READ_PCI_CONFIG = new IOControlCode(OLS_TYPE, 0x851, 
+      IOCTL_OLS_READ_PCI_CONFIG = new IOControlCode(OLS_TYPE, 0x851,
         IOControlCode.Access.Read),
       IOCTL_OLS_WRITE_PCI_CONFIG = new IOControlCode(OLS_TYPE, 0x852,
         IOControlCode.Access.Write),
@@ -51,10 +51,10 @@ namespace OpenHardwareMonitor.Hardware {
     }
 
     private static string GetTempFileName() {
-      
+
       // try to create one in the application folder
       string location = GetAssembly().Location;
-      if (!string.IsNullOrEmpty(location)) {        
+      if (!string.IsNullOrEmpty(location)) {
         try {
           string fileName = Path.ChangeExtension(location, ".sys");
           using (FileStream stream = File.Create(fileName)) {
@@ -65,9 +65,9 @@ namespace OpenHardwareMonitor.Hardware {
 
       // if this failed, try to get a file in the temporary folder
       try {
-        return Path.GetTempFileName();        
-      } catch (IOException) { 
-          // some I/O exception
+        return Path.GetTempFileName();
+      } catch (IOException) {
+        // some I/O exception
       } 
       catch (UnauthorizedAccessException) { 
         // we do not have the right to create a file in the temp folder
@@ -75,13 +75,13 @@ namespace OpenHardwareMonitor.Hardware {
       catch (NotSupportedException) {
         // invalid path format of the TMP system environment variable
       }
-     
+
       return null;
     }
 
     private static bool ExtractDriver(string fileName) {
       string resourceName = "OpenHardwareMonitor.Hardware." +
-        (OperatingSystem.Is64BitOperatingSystem ? "WinRing0x64.sys" : 
+        (OperatingSystem.Is64BitOperatingSystem ? "WinRing0x64.sys" :
         "WinRing0.sys");
 
       string[] names = GetAssembly().GetManifestResourceNames();
@@ -91,8 +91,8 @@ namespace OpenHardwareMonitor.Hardware {
           using (Stream stream = GetAssembly().
             GetManifestResourceStream(names[i])) 
           {
-              buffer = new byte[stream.Length];
-              stream.Read(buffer, 0, buffer.Length);
+            buffer = new byte[stream.Length];
+            stream.Read(buffer, 0, buffer.Length);
           }
         }
       }
@@ -105,9 +105,9 @@ namespace OpenHardwareMonitor.Hardware {
           target.Write(buffer, 0, buffer.Length);
           target.Flush();
         }
-      } catch (IOException) { 
+      } catch (IOException) {
         // for example there is not enough space on the disk
-        return false; 
+        return false;
       }
 
       // make sure the file is actually writen to the file system
@@ -123,31 +123,50 @@ namespace OpenHardwareMonitor.Hardware {
           Thread.Sleep(10);
         }
       }
-      
+
       // file still has not the right size, something is wrong
       return false;
+    }
+
+    private static string GetWinRingFileName(out string errorMessage) {
+      errorMessage = null;
+      try {
+        var assembly = GetAssembly();
+        string directoryPath = assembly.Location
+          .Substring(0, assembly.Location.Length - assembly.ManifestModule.Name.Length);
+        string resourceName = OperatingSystem.Is64BitOperatingSystem ? "WinRing0x64.sys" : "WinRing0.sys";
+        var filePath = Path.Combine(directoryPath, resourceName);
+        if (File.Exists(filePath)) {
+          return filePath;
+        } else {
+          errorMessage = $"File not found: {filePath}";
+        }
+      } catch (Exception ex) {
+        errorMessage = $"Error on fetching WinRing0 file name: {ex.Message}";
+      }
+      return null;
     }
 
     public static void Open() {
       // no implementation for unix systems
       if (OperatingSystem.IsUnix)
-        return;  
-      
+        return;
+
       if (driver != null)
         return;
 
       // clear the current report
       report.Length = 0;
-     
+
       driver = new KernelDriver("WinRing0_1_2_0");
       driver.Open();
 
       if (!driver.IsOpen) {
         // driver is not loaded, try to install and open
+        string installError;
+        fileName = GetWinRingFileName(out installError);
+        if (!string.IsNullOrWhiteSpace(fileName)) {
 
-        fileName = GetTempFileName();
-        if (fileName != null && ExtractDriver(fileName)) {
-          string installError;
           if (driver.Install(fileName, out installError)) {
             driver.Open();
 
@@ -157,7 +176,7 @@ namespace OpenHardwareMonitor.Hardware {
             }
           } else {
             string errorFirstInstall = installError;
-   
+
             // install failed, try to delete and reinstall
             driver.Delete();
 
@@ -182,19 +201,11 @@ namespace OpenHardwareMonitor.Hardware {
             }
           }
         } else {
-          report.AppendLine("Status: Extracting driver failed");
+          report.AppendLine(installError);
         }
-
-        try {
-          // try to delte the driver file
-          if (File.Exists(fileName))
-            File.Delete(fileName);
-          fileName = null;
-        } catch (IOException) { } 
-          catch (UnauthorizedAccessException) { }
       }
 
-      if (!driver.IsOpen) 
+      if (!driver.IsOpen)
         driver = null;
 
       string isaMutexName = "Global\\Access_ISABUS.HTP.Method";
@@ -242,15 +253,6 @@ namespace OpenHardwareMonitor.Hardware {
       if (pciBusMutex != null) {
         pciBusMutex.Close();
         pciBusMutex = null;
-      }
-
-      // try to delete temporary driver file again if failed during open
-      if (fileName != null && File.Exists(fileName)) {
-        try {
-          File.Delete(fileName);
-          fileName = null;
-        } catch (IOException) { } 
-          catch (UnauthorizedAccessException) { }
       }
     }
 
@@ -380,7 +382,7 @@ namespace OpenHardwareMonitor.Hardware {
       public uint RegAddress;
     }
 
-    public static bool ReadPciConfig(uint pciAddress, uint regAddress, 
+    public static bool ReadPciConfig(uint pciAddress, uint regAddress,
       out uint value) 
     {
       if (driver == null || (regAddress & 3) != 0) {
@@ -393,7 +395,7 @@ namespace OpenHardwareMonitor.Hardware {
       input.RegAddress = regAddress;
 
       value = 0;
-      return driver.DeviceIOControl(IOCTL_OLS_READ_PCI_CONFIG, input, 
+      return driver.DeviceIOControl(IOCTL_OLS_READ_PCI_CONFIG, input,
         ref value);
     }
 
@@ -404,7 +406,7 @@ namespace OpenHardwareMonitor.Hardware {
       public uint Value;
     }
 
-    public static bool WritePciConfig(uint pciAddress, uint regAddress, 
+    public static bool WritePciConfig(uint pciAddress, uint regAddress,
       uint value) 
     {
       if (driver == null || (regAddress & 3) != 0)
